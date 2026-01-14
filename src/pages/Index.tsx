@@ -1,406 +1,336 @@
 import { useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import Icon from '@/components/ui/icon';
-import { Textarea } from '@/components/ui/textarea';
 
-interface TitlePageData {
-  university: string;
-  faculty: string;
-  department: string;
-  workType: string;
-  discipline: string;
-  theme: string;
-  studentName: string;
-  studentGroup: string;
-  teacherName: string;
-  teacherPosition: string;
-  city: string;
-  year: string;
+type PieceType = 'pawn' | 'knight' | 'bishop' | 'rook' | 'queen' | 'king';
+type PieceColor = 'white' | 'black';
+
+interface Piece {
+  type: PieceType;
+  color: PieceColor;
 }
 
+interface Position {
+  row: number;
+  col: number;
+}
+
+const pieceSymbols: Record<PieceColor, Record<PieceType, string>> = {
+  white: {
+    king: '♔',
+    queen: '♕',
+    rook: '♖',
+    bishop: '♗',
+    knight: '♘',
+    pawn: '♙',
+  },
+  black: {
+    king: '♚',
+    queen: '♛',
+    rook: '♜',
+    bishop: '♝',
+    knight: '♞',
+    pawn: '♟',
+  },
+};
+
+const initialBoard: (Piece | null)[][] = [
+  [
+    { type: 'rook', color: 'black' },
+    { type: 'knight', color: 'black' },
+    { type: 'bishop', color: 'black' },
+    { type: 'queen', color: 'black' },
+    { type: 'king', color: 'black' },
+    { type: 'bishop', color: 'black' },
+    { type: 'knight', color: 'black' },
+    { type: 'rook', color: 'black' },
+  ],
+  Array(8).fill({ type: 'pawn', color: 'black' }),
+  Array(8).fill(null),
+  Array(8).fill(null),
+  Array(8).fill(null),
+  Array(8).fill(null),
+  Array(8).fill({ type: 'pawn', color: 'white' }),
+  [
+    { type: 'rook', color: 'white' },
+    { type: 'knight', color: 'white' },
+    { type: 'bishop', color: 'white' },
+    { type: 'queen', color: 'white' },
+    { type: 'king', color: 'white' },
+    { type: 'bishop', color: 'white' },
+    { type: 'knight', color: 'white' },
+    { type: 'rook', color: 'white' },
+  ],
+];
+
 const Index = () => {
-  const currentYear = new Date().getFullYear().toString();
-  
-  const [data, setData] = useState<TitlePageData>({
-    university: 'ФЕДЕРАЛЬНОЕ ГОСУДАРСТВЕННОЕ БЮДЖЕТНОЕ ОБРАЗОВАТЕЛЬНОЕ УЧРЕЖДЕНИЕ ВЫСШЕГО ОБРАЗОВАНИЯ',
-    faculty: 'Факультет информационных технологий',
-    department: 'Кафедра программной инженерии',
-    workType: 'КУРСОВАЯ РАБОТА',
-    discipline: 'по дисциплине «Разработка веб-приложений»',
-    theme: 'Создание системы управления проектами',
-    studentName: 'Иванов Иван Иванович',
-    studentGroup: 'ИТ-301',
-    teacherName: 'Петров Петр Петрович',
-    teacherPosition: 'к.т.н., доцент',
-    city: 'Москва',
-    year: currentYear,
+  const [board, setBoard] = useState<(Piece | null)[][]>(
+    initialBoard.map(row => row.map(piece => piece ? { ...piece } : null))
+  );
+  const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
+  const [currentPlayer, setCurrentPlayer] = useState<PieceColor>('white');
+  const [validMoves, setValidMoves] = useState<Position[]>([]);
+  const [capturedPieces, setCapturedPieces] = useState<{ white: Piece[]; black: Piece[] }>({
+    white: [],
+    black: [],
   });
 
-  const handleChange = (field: keyof TitlePageData, value: string) => {
-    setData(prev => ({ ...prev, [field]: value }));
+  const isValidMove = (from: Position, to: Position, piece: Piece): boolean => {
+    const rowDiff = to.row - from.row;
+    const colDiff = to.col - from.col;
+    const absRowDiff = Math.abs(rowDiff);
+    const absColDiff = Math.abs(colDiff);
+    const targetPiece = board[to.row][to.col];
+
+    if (targetPiece && targetPiece.color === piece.color) return false;
+
+    switch (piece.type) {
+      case 'pawn':
+        const direction = piece.color === 'white' ? -1 : 1;
+        const startRow = piece.color === 'white' ? 6 : 1;
+        
+        if (colDiff === 0 && !targetPiece) {
+          if (rowDiff === direction) return true;
+          if (from.row === startRow && rowDiff === 2 * direction && !board[from.row + direction][from.col]) {
+            return true;
+          }
+        }
+        
+        if (absColDiff === 1 && rowDiff === direction && targetPiece) {
+          return true;
+        }
+        return false;
+
+      case 'knight':
+        return (absRowDiff === 2 && absColDiff === 1) || (absRowDiff === 1 && absColDiff === 2);
+
+      case 'bishop':
+        if (absRowDiff !== absColDiff) return false;
+        return isPathClear(from, to);
+
+      case 'rook':
+        if (rowDiff !== 0 && colDiff !== 0) return false;
+        return isPathClear(from, to);
+
+      case 'queen':
+        if (rowDiff !== 0 && colDiff !== 0 && absRowDiff !== absColDiff) return false;
+        return isPathClear(from, to);
+
+      case 'king':
+        return absRowDiff <= 1 && absColDiff <= 1;
+
+      default:
+        return false;
+    }
   };
 
-  const generatePDF = () => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
+  const isPathClear = (from: Position, to: Position): boolean => {
+    const rowStep = Math.sign(to.row - from.row);
+    const colStep = Math.sign(to.col - from.col);
+    let currentRow = from.row + rowStep;
+    let currentCol = from.col + colStep;
 
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="utf-8">
-          <title>Титульный лист</title>
-          <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Open+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-          <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { 
-              font-family: 'Open Sans', sans-serif;
-              width: 210mm;
-              height: 297mm;
-              padding: 20mm 25mm 20mm 30mm;
-              background: white;
-            }
-            .page {
-              width: 100%;
-              height: 100%;
-              display: flex;
-              flex-direction: column;
-              justify-content: space-between;
-            }
-            .top { text-align: center; }
-            .university { 
-              font-size: 12pt;
-              font-weight: 600;
-              text-transform: uppercase;
-              margin-bottom: 8pt;
-              line-height: 1.3;
-            }
-            .faculty, .department { 
-              font-size: 13pt;
-              margin-bottom: 4pt;
-            }
-            .middle {
-              flex: 1;
-              display: flex;
-              flex-direction: column;
-              justify-content: center;
-              align-items: center;
-              text-align: center;
-              padding: 40pt 0;
-            }
-            .work-type {
-              font-family: 'Montserrat', sans-serif;
-              font-size: 18pt;
-              font-weight: 700;
-              text-transform: uppercase;
-              margin-bottom: 8pt;
-            }
-            .discipline {
-              font-size: 14pt;
-              margin-bottom: 24pt;
-            }
-            .theme-label {
-              font-size: 13pt;
-              margin-bottom: 8pt;
-            }
-            .theme {
-              font-size: 15pt;
-              font-weight: 600;
-              line-height: 1.4;
-              max-width: 450pt;
-            }
-            .bottom {
-              display: flex;
-              justify-content: space-between;
-              align-items: flex-end;
-            }
-            .student, .teacher {
-              font-size: 13pt;
-              line-height: 1.6;
-            }
-            .label {
-              color: #666;
-              font-size: 11pt;
-            }
-            .city-year {
-              text-align: center;
-              font-size: 13pt;
-              margin-top: 20pt;
-            }
-            @media print {
-              body { margin: 0; }
-              @page { size: A4; margin: 0; }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="page">
-            <div class="top">
-              <div class="university">${data.university}</div>
-              <div class="faculty">${data.faculty}</div>
-              <div class="department">${data.department}</div>
-            </div>
-            
-            <div class="middle">
-              <div class="work-type">${data.workType}</div>
-              <div class="discipline">${data.discipline}</div>
-              <div class="theme-label">на тему:</div>
-              <div class="theme">«${data.theme}»</div>
-            </div>
-            
-            <div>
-              <div class="bottom">
-                <div class="student">
-                  <div class="label">Выполнил студент группы ${data.studentGroup}</div>
-                  <div><strong>${data.studentName}</strong></div>
-                </div>
-                <div class="teacher">
-                  <div class="label">Научный руководитель</div>
-                  <div><strong>${data.teacherPosition}</strong></div>
-                  <div><strong>${data.teacherName}</strong></div>
-                </div>
-              </div>
-              <div class="city-year">
-                <div>${data.city}</div>
-                <div>${data.year}</div>
-              </div>
-            </div>
-          </div>
-        </body>
-      </html>
-    `;
+    while (currentRow !== to.row || currentCol !== to.col) {
+      if (board[currentRow][currentCol]) return false;
+      currentRow += rowStep;
+      currentCol += colStep;
+    }
+    return true;
+  };
 
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
-    
-    setTimeout(() => {
-      printWindow.print();
-    }, 250);
+  const getValidMoves = (position: Position, piece: Piece): Position[] => {
+    const moves: Position[] = [];
+    for (let row = 0; row < 8; row++) {
+      for (let col = 0; col < 8; col++) {
+        if (isValidMove(position, { row, col }, piece)) {
+          moves.push({ row, col });
+        }
+      }
+    }
+    return moves;
+  };
+
+  const handleSquareClick = (row: number, col: number) => {
+    const clickedPiece = board[row][col];
+
+    if (selectedPosition) {
+      const isValidMoveTarget = validMoves.some(
+        move => move.row === row && move.col === col
+      );
+
+      if (isValidMoveTarget) {
+        const newBoard = board.map(r => [...r]);
+        const movingPiece = newBoard[selectedPosition.row][selectedPosition.col];
+        const capturedPiece = newBoard[row][col];
+
+        if (capturedPiece) {
+          setCapturedPieces(prev => ({
+            ...prev,
+            [capturedPiece.color]: [...prev[capturedPiece.color], capturedPiece],
+          }));
+        }
+
+        newBoard[row][col] = movingPiece;
+        newBoard[selectedPosition.row][selectedPosition.col] = null;
+
+        setBoard(newBoard);
+        setCurrentPlayer(currentPlayer === 'white' ? 'black' : 'white');
+        setSelectedPosition(null);
+        setValidMoves([]);
+      } else if (clickedPiece && clickedPiece.color === currentPlayer) {
+        setSelectedPosition({ row, col });
+        setValidMoves(getValidMoves({ row, col }, clickedPiece));
+      } else {
+        setSelectedPosition(null);
+        setValidMoves([]);
+      }
+    } else if (clickedPiece && clickedPiece.color === currentPlayer) {
+      setSelectedPosition({ row, col });
+      setValidMoves(getValidMoves({ row, col }, clickedPiece));
+    }
+  };
+
+  const resetGame = () => {
+    setBoard(initialBoard.map(row => row.map(piece => piece ? { ...piece } : null)));
+    setSelectedPosition(null);
+    setCurrentPlayer('white');
+    setValidMoves([]);
+    setCapturedPieces({ white: [], black: [] });
+  };
+
+  const isSelected = (row: number, col: number) => {
+    return selectedPosition?.row === row && selectedPosition?.col === col;
+  };
+
+  const isValidMoveSquare = (row: number, col: number) => {
+    return validMoves.some(move => move.row === row && move.col === col);
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-      <div className="container mx-auto px-4 py-8 max-w-7xl">
-        <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold text-primary mb-3 tracking-tight">
-            Генератор титульных листов
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
+      <div className="max-w-6xl w-full">
+        <div className="text-center mb-8">
+          <h1 className="text-5xl font-bold text-white mb-2 tracking-tight">
+            Шахматы ♟️
           </h1>
-          <p className="text-muted-foreground text-lg">
-            Создайте профессиональную обложку для вашей работы
+          <p className="text-slate-300 text-lg">
+            Классическая игра для двоих
           </p>
         </div>
 
-        <div className="grid lg:grid-cols-2 gap-8">
-          <Card className="p-8 bg-white shadow-sm">
-            <h2 className="text-xl font-semibold mb-6 flex items-center gap-2">
-              <Icon name="FileText" size={24} className="text-accent" />
-              Данные работы
-            </h2>
-            
-            <div className="space-y-5">
-              <div>
-                <Label htmlFor="university" className="text-sm font-medium">Образовательное учреждение</Label>
-                <Textarea
-                  id="university"
-                  value={data.university}
-                  onChange={(e) => handleChange('university', e.target.value)}
-                  className="mt-1.5 min-h-[60px]"
-                />
+        <div className="grid lg:grid-cols-[1fr_auto_1fr] gap-6 items-start">
+          <Card className="p-6 bg-slate-800/50 backdrop-blur border-slate-700">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                <Icon name="User" size={20} className="text-slate-400" />
+                Чёрные
+              </h3>
+              <div className="text-sm text-slate-400">
+                Взято: {capturedPieces.black.length}
               </div>
-
-              <div className="grid sm:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="faculty" className="text-sm font-medium">Факультет</Label>
-                  <Input
-                    id="faculty"
-                    value={data.faculty}
-                    onChange={(e) => handleChange('faculty', e.target.value)}
-                    className="mt-1.5"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="department" className="text-sm font-medium">Кафедра</Label>
-                  <Input
-                    id="department"
-                    value={data.department}
-                    onChange={(e) => handleChange('department', e.target.value)}
-                    className="mt-1.5"
-                  />
-                </div>
-              </div>
-
-              <div className="grid sm:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="workType" className="text-sm font-medium">Тип работы</Label>
-                  <Input
-                    id="workType"
-                    value={data.workType}
-                    onChange={(e) => handleChange('workType', e.target.value)}
-                    placeholder="Курсовая работа"
-                    className="mt-1.5"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="discipline" className="text-sm font-medium">Дисциплина</Label>
-                  <Input
-                    id="discipline"
-                    value={data.discipline}
-                    onChange={(e) => handleChange('discipline', e.target.value)}
-                    className="mt-1.5"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <Label htmlFor="theme" className="text-sm font-medium">Тема работы</Label>
-                <Textarea
-                  id="theme"
-                  value={data.theme}
-                  onChange={(e) => handleChange('theme', e.target.value)}
-                  className="mt-1.5 min-h-[60px]"
-                />
-              </div>
-
-              <div className="pt-4 border-t">
-                <h3 className="text-sm font-semibold mb-4 text-muted-foreground">СТУДЕНТ</h3>
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="studentName" className="text-sm font-medium">ФИО студента</Label>
-                    <Input
-                      id="studentName"
-                      value={data.studentName}
-                      onChange={(e) => handleChange('studentName', e.target.value)}
-                      className="mt-1.5"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="studentGroup" className="text-sm font-medium">Группа</Label>
-                    <Input
-                      id="studentGroup"
-                      value={data.studentGroup}
-                      onChange={(e) => handleChange('studentGroup', e.target.value)}
-                      className="mt-1.5"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="pt-4 border-t">
-                <h3 className="text-sm font-semibold mb-4 text-muted-foreground">РУКОВОДИТЕЛЬ</h3>
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="teacherName" className="text-sm font-medium">ФИО преподавателя</Label>
-                    <Input
-                      id="teacherName"
-                      value={data.teacherName}
-                      onChange={(e) => handleChange('teacherName', e.target.value)}
-                      className="mt-1.5"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="teacherPosition" className="text-sm font-medium">Должность</Label>
-                    <Input
-                      id="teacherPosition"
-                      value={data.teacherPosition}
-                      onChange={(e) => handleChange('teacherPosition', e.target.value)}
-                      placeholder="к.т.н., доцент"
-                      className="mt-1.5"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid sm:grid-cols-2 gap-4 pt-4 border-t">
-                <div>
-                  <Label htmlFor="city" className="text-sm font-medium">Город</Label>
-                  <Input
-                    id="city"
-                    value={data.city}
-                    onChange={(e) => handleChange('city', e.target.value)}
-                    className="mt-1.5"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="year" className="text-sm font-medium">Год</Label>
-                  <Input
-                    id="year"
-                    value={data.year}
-                    onChange={(e) => handleChange('year', e.target.value)}
-                    className="mt-1.5"
-                  />
-                </div>
-              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {capturedPieces.black.map((piece, idx) => (
+                <span key={idx} className="text-3xl opacity-50">
+                  {pieceSymbols[piece.color][piece.type]}
+                </span>
+              ))}
             </div>
           </Card>
 
-          <div className="lg:sticky lg:top-8 h-fit">
-            <Card className="p-8 bg-white shadow-sm">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold flex items-center gap-2">
-                  <Icon name="Eye" size={24} className="text-accent" />
-                  Предварительный просмотр
-                </h2>
+          <Card className="p-8 bg-slate-800/80 backdrop-blur border-slate-700">
+            <div className="mb-6 text-center">
+              <div className="inline-flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-amber-500 to-orange-500 rounded-full">
+                <div className={`w-3 h-3 rounded-full ${currentPlayer === 'white' ? 'bg-white' : 'bg-slate-900'} animate-pulse`} />
+                <span className="text-white font-semibold text-lg">
+                  Ход: {currentPlayer === 'white' ? 'Белые' : 'Чёрные'}
+                </span>
               </div>
+            </div>
 
-              <div className="bg-white border-2 border-slate-200 shadow-lg rounded-sm p-12 aspect-[1/1.414] overflow-hidden text-[8px] relative">
-                <div className="h-full flex flex-col justify-between">
-                  <div className="text-center">
-                    <div className="font-semibold uppercase mb-2 leading-tight">
-                      {data.university}
-                    </div>
-                    <div className="mb-1">{data.faculty}</div>
-                    <div>{data.department}</div>
-                  </div>
+            <div className="inline-block border-4 border-slate-700 rounded-lg overflow-hidden shadow-2xl">
+              {board.map((row, rowIndex) => (
+                <div key={rowIndex} className="flex">
+                  {row.map((piece, colIndex) => {
+                    const isLight = (rowIndex + colIndex) % 2 === 0;
+                    const selected = isSelected(rowIndex, colIndex);
+                    const validMove = isValidMoveSquare(rowIndex, colIndex);
 
-                  <div className="flex-1 flex flex-col justify-center items-center text-center px-4">
-                    <div className="font-bold text-[12px] uppercase mb-2">
-                      {data.workType}
-                    </div>
-                    <div className="mb-4 text-[9px]">{data.discipline}</div>
-                    <div className="mb-2 text-[9px]">на тему:</div>
-                    <div className="font-semibold text-[10px] leading-tight">
-                      «{data.theme}»
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between items-end mb-4 text-[9px]">
-                      <div className="text-left">
-                        <div className="text-muted-foreground text-[8px] mb-0.5">
-                          Выполнил студент группы {data.studentGroup}
-                        </div>
-                        <div className="font-semibold">{data.studentName}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-muted-foreground text-[8px] mb-0.5">
-                          Научный руководитель
-                        </div>
-                        <div className="font-semibold">{data.teacherPosition}</div>
-                        <div className="font-semibold">{data.teacherName}</div>
-                      </div>
-                    </div>
-                    <div className="text-center text-[9px]">
-                      <div>{data.city}</div>
-                      <div>{data.year}</div>
-                    </div>
-                  </div>
+                    return (
+                      <button
+                        key={`${rowIndex}-${colIndex}`}
+                        onClick={() => handleSquareClick(rowIndex, colIndex)}
+                        className={`
+                          w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center text-5xl sm:text-6xl
+                          transition-all duration-200 relative
+                          ${isLight ? 'bg-amber-100' : 'bg-amber-800'}
+                          ${selected ? 'ring-4 ring-sky-400 ring-inset scale-95' : ''}
+                          ${validMove ? 'after:absolute after:w-4 after:h-4 after:bg-sky-400 after:rounded-full after:animate-pulse' : ''}
+                          hover:brightness-110 active:scale-95
+                        `}
+                      >
+                        {piece && (
+                          <span className={`
+                            ${piece.color === 'white' ? 'text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]' : 'text-slate-900 drop-shadow-[0_2px_4px_rgba(255,255,255,0.3)]'}
+                            transition-transform duration-200
+                            ${selected ? 'scale-110' : ''}
+                          `}>
+                            {pieceSymbols[piece.color][piece.type]}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
-              </div>
+              ))}
+            </div>
 
-              <Button 
-                onClick={generatePDF}
+            <div className="mt-6 text-center">
+              <Button
+                onClick={resetGame}
+                variant="outline"
                 size="lg"
-                className="w-full mt-6 text-base font-medium"
+                className="bg-slate-700 border-slate-600 text-white hover:bg-slate-600"
               >
-                <Icon name="Download" size={20} className="mr-2" />
-                Скачать PDF
+                <Icon name="RotateCcw" size={20} className="mr-2" />
+                Новая игра
               </Button>
-            </Card>
-          </div>
+            </div>
+          </Card>
+
+          <Card className="p-6 bg-slate-800/50 backdrop-blur border-slate-700">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                <Icon name="User" size={20} className="text-slate-400" />
+                Белые
+              </h3>
+              <div className="text-sm text-slate-400">
+                Взято: {capturedPieces.white.length}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {capturedPieces.white.map((piece, idx) => (
+                <span key={idx} className="text-3xl opacity-50">
+                  {pieceSymbols[piece.color][piece.type]}
+                </span>
+              ))}
+            </div>
+          </Card>
         </div>
+
+        <Card className="mt-6 p-6 bg-slate-800/30 backdrop-blur border-slate-700">
+          <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
+            <Icon name="Info" size={20} className="text-sky-400" />
+            Как играть
+          </h3>
+          <ul className="text-slate-300 space-y-2 text-sm">
+            <li>• Кликните на фигуру, чтобы увидеть возможные ходы (синие точки)</li>
+            <li>• Кликните на подсвеченную клетку, чтобы сделать ход</li>
+            <li>• Игра ведётся по классическим шахматным правилам</li>
+            <li>• Взятые фигуры отображаются в боковых панелях</li>
+          </ul>
+        </Card>
       </div>
     </div>
   );
